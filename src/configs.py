@@ -47,12 +47,10 @@ def configure_logging():
         log_file,
         maxBytes=10**6,
         backupCount=5,
-        encoding='utf-8'
-    )
+        encoding='utf-8')
     logging.basicConfig(
         datefmt=DT_FORMAT,
         format=LOG_FORMAT,
         level=logging.INFO,
-        handlers=(rotating_handler, logging.StreamHandler())
-    )
+        handlers=(rotating_handler, logging.StreamHandler()))
 
