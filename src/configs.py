@@ -58,5 +58,3 @@ def configure_logging():
         handlers=(rotating_handler, logging.StreamHandler())
     )
 
-
-
