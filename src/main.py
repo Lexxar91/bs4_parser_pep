@@ -8,9 +8,14 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
-from constants import BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, PEP_URL
+from constants import (BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL,
+                       PEP_URL, RESULTS, RESULTS_VERSIONS, RESULTS_PEP)
 from outputs import control_output
+from exceptions import NotFoundVersionsPythonList
 from utils import find_tag, get_response
+
+
+logger = logging.getLogger(__name__)
 
 
 def whats_new(session):
@@ -32,7 +37,6 @@ def whats_new(session):
         'li',
         attrs={'class': 'toctree-l1'}
     )
-    results = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор',)]
     for section in tqdm(section_by_python, desc='Super parser'):
         get_tag = section.find('a')
         href = get_tag['href']
@@ -44,10 +48,10 @@ def whats_new(session):
         h1 = find_tag(soup, 'h1')
         dl = find_tag(soup, 'dl')
         dl_text = dl.text.replace('\n', ' ')
-        results.append(
+        RESULTS.append(
             (version_link, h1.text, dl_text,),
         )
-    return results
+    return RESULTS
 
 
 def latest_versions(session):
@@ -65,8 +69,7 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
     else:
-        raise Exception('Ничего не нашлось')
-    results = [('Ссылка на документацию', 'Версия', 'Статус')]
+        raise NotFoundVersionsPythonList('Не найден список c версиями Python.')
     pattern = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
     for a in a_tags:
         link = a['href']
@@ -75,10 +78,10 @@ def latest_versions(session):
             version, status = text_match.groups()
         else:
             version, status = a.text, ''
-        results.append(
+        RESULTS_VERSIONS.append(
             (link, version, status,),
         )
-    return results
+    return RESULTS_VERSIONS
 
 
 def download(session):
@@ -105,7 +108,7 @@ def download(session):
     response_archive = session.get(archive_url)
     with open(archive_path, 'wb') as file:
         file.write(response_archive.content)
-    logging.info(f'Архив был загружен и сохранён: {archive_path}')
+    logger.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
 def pep(session):
@@ -118,24 +121,18 @@ def pep(session):
         'section',
         attrs={'id': 'numerical-index'}
     )
-    all_ = tables_of_all_documents_pep.find_all('tr')
+    get_tbody = tables_of_all_documents_pep.find('tbody')
+    all_ = get_tbody.find_all('tr')
     pep_count = 0
     status_count = defaultdict(int)
-    results = [('Статус', 'Количество',)]
-    for item in tqdm(all_[:15], desc='pep parsing'):
-        td = item.find_all('td')
-        all_status = None
-        link = None
-
-        for index, value in enumerate(td):
-            if index == 0 and len(value.text) == 2:
-                all_status = item.text[1]
-                continue
-            if index == 1:
-                get_tag_a = find_tag(value, 'a')
-                link = get_tag_a['href']
-                break
+    for item in tqdm(all_, desc='pep parsing'):
+        get_a = item.find('a')
+        get_status = item.find('abbr')
+        if get_a is None:
+            continue
+        link = get_a['href']
         link_url = urljoin(PEP_URL, link)
+        status_pep = get_status.text[1:]
         response = get_response(session, link_url)
         soup = BeautifulSoup(response.text, 'lxml')
         get_dl_tag = find_tag(
@@ -151,24 +148,24 @@ def pep(session):
         status = None
         if search_text:
             status = search_text.groups('status')
-        if all_status and EXPECTED_STATUS.get(all_status) != status:
-            logging.info(
+        if status_pep and EXPECTED_STATUS.get(status_pep) != status:
+            logger.info(
                 f'Несовпадающие статусы:\n{link_url}\n'
                 f'Статус в карточке: {status}\n'
-                f'Ожидаемый статус: {EXPECTED_STATUS[all_status]}'
+                f'Ожидаемый статус: {EXPECTED_STATUS[status_pep]}'
             )
-        if not all_status and status not in ('Active', 'Draft'):
-            logging.info(
+        if not status_pep and status not in ('Active', 'Draft'):
+            logger.info(
                 f'Несовпадающие статусы:\n{link}\n'
                 f'Статус в карточке: {status}\n'
                 f'Ожидаемые статусы: ["Active", "Draft"]'
             )
         pep_count += 1
         status_count[status] += 1
-    results.append([(status, status_count[status],)
-                   for status in status_count])
-    results.append(('Total', pep_count,))
-    return results
+    RESULTS_PEP.append([(status, status_count[status],)
+                        for status in status_count])
+    RESULTS_PEP.append(('Total', pep_count,))
+    return RESULTS_PEP
 
 
 MODE_TO_FUNCTION = {
@@ -181,10 +178,10 @@ MODE_TO_FUNCTION = {
 
 def main():
     configure_logging()
-    logging.info('Парсер запущен!')
+    logger.info('Парсер запущен!')
     arg_parser = configure_argument_parser(MODE_TO_FUNCTION.keys())
     args = arg_parser.parse_args()
-    logging.info(f'Аргументы командной строки: {args}')
+    logger.info(f'Аргументы командной строки: {args}')
     session = requests_cache.CachedSession()
     if args.clear_cache:
         session.cache.clear()
@@ -192,7 +189,7 @@ def main():
     results = MODE_TO_FUNCTION[parse_mode](session)
     if results is not None:
         control_output(results, args)
-    logging.info('Парсер завершил работу.')
+    logger.info('Парсер завершил работу.')
 
 
 if __name__ == '__main__':

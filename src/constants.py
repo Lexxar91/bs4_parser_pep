@@ -15,3 +15,6 @@ EXPECTED_STATUS = {
 }
 
 PEP_URL = 'https://peps.python.org/'
+RESULTS = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор',)]
+RESULTS_VERSIONS = [('Ссылка на документацию', 'Версия', 'Статус')]
+RESULTS_PEP = [('Статус', 'Количество',)]
